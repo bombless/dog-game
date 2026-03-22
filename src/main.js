@@ -120,7 +120,7 @@ function onPointerMove(event) {
 
   if (state.isPaused) {
     state.dragYaw = THREE.MathUtils.clamp(
-      state.dragYaw + dx * DRAG_YAW_SENSITIVITY,
+      state.dragYaw - dx * DRAG_YAW_SENSITIVITY,
       -MAX_DRAG_YAW,
       MAX_DRAG_YAW
     );

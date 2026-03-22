@@ -18,6 +18,18 @@ python3 -m http.server 8000
 
 `http://127.0.0.1:8000`
 
+## 部署到 GitHub Pages
+
+1. 新建一个 GitHub 仓库并把当前代码推上去（`master` 或 `main` 分支都可以）。
+2. 在仓库页面打开 `Settings -> Pages`。
+3. `Build and deployment` 的 `Source` 选择 `GitHub Actions`。
+4. 推送任意一次提交，等待 `Actions` 里的 `Deploy To GitHub Pages` 工作流完成。
+5. 发布地址通常是：
+   - 项目页：`https://<你的用户名>.github.io/<仓库名>/`
+   - 用户主页仓库（仓库名就是 `<你的用户名>.github.io`）：`https://<你的用户名>.github.io/`
+
+仓库里已经包含自动部署工作流：`.github/workflows/deploy-pages.yml`。
+
 ## 操作
 
 - `A / D` 或方向键左右：转向
