@@ -1,0 +1,69 @@
+:root {
+  --hud-bg: rgba(8, 28, 24, 0.64);
+  --hud-border: rgba(171, 223, 189, 0.45);
+  --text-main: #effaf2;
+  --text-sub: #cde9d6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  background: linear-gradient(180deg, #8ec9f7 0%, #cdeeb0 65%, #86b86d 100%);
+}
+
+#scene {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hud {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 2;
+  min-width: 220px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--hud-border);
+  background: var(--hud-bg);
+  backdrop-filter: blur(4px);
+  color: var(--text-main);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+}
+
+.hud h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.hud p {
+  margin: 4px 0;
+  color: var(--text-sub);
+  font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .hud {
+    top: 10px;
+    left: 10px;
+    min-width: 190px;
+    padding: 10px 12px;
+  }
+
+  .hud h1 {
+    font-size: 16px;
+  }
+
+  .hud p {
+    font-size: 12px;
+  }
+}
