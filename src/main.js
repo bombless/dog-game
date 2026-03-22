@@ -62,6 +62,7 @@ const state = {
   approachSpeed: 9,
   runHeadingYaw: 0,
   runDistance: 0,
+  edgeBlocked: false,
   runnerLoaded: false,
   isPaused: false,
   dragYaw: 0,
@@ -89,6 +90,17 @@ const SUN_OFFSET = new THREE.Vector3(22, 32, 8);
 const MAX_DRAG_YAW = Math.PI * 0.42;
 const DRAG_YAW_SENSITIVITY = 0.008;
 const TARGET_WAIT_SECONDS = 6;
+const GROUND = {
+  width: 420,
+  depth: 170,
+  centerX: 140,
+  centerZ: 0,
+  edgePadding: 2.2,
+};
+const GROUND_MIN_X = GROUND.centerX - GROUND.width * 0.5 + GROUND.edgePadding;
+const GROUND_MAX_X = GROUND.centerX + GROUND.width * 0.5 - GROUND.edgePadding;
+const GROUND_MIN_Z = GROUND.centerZ - GROUND.depth * 0.5 + GROUND.edgePadding;
+const GROUND_MAX_Z = GROUND.centerZ + GROUND.depth * 0.5 - GROUND.edgePadding;
 
 const raycaster = new THREE.Raycaster();
 const pointerNdc = new THREE.Vector2();
@@ -267,6 +279,10 @@ function trackCenterZ(distance) {
   return Math.sin(distance * 0.08) * 6 + Math.sin(distance * 0.021) * 11;
 }
 
+function isInsideGroundBounds(x, z) {
+  return x >= GROUND_MIN_X && x <= GROUND_MAX_X && z >= GROUND_MIN_Z && z <= GROUND_MAX_Z;
+}
+
 function sampleTrack(distance, lateral = 0) {
   const x = distance;
   const baseZ = trackCenterZ(distance);
@@ -338,14 +354,14 @@ async function loadGLTF(paths) {
 }
 
 function addHillyGround() {
-  const width = 420;
-  const depth = 170;
+  const width = GROUND.width;
+  const depth = GROUND.depth;
   const segW = 220;
   const segD = 110;
 
   const geometry = new THREE.PlaneGeometry(width, depth, segW, segD);
   geometry.rotateX(-Math.PI / 2);
-  geometry.translate(140, 0, 0);
+  geometry.translate(GROUND.centerX, 0, GROUND.centerZ);
 
   const position = geometry.attributes.position;
 
@@ -396,6 +412,10 @@ function updateHUD() {
   }
   if (state.behavior === "wait") {
     modeEl.textContent = `状态: 已到达，等待 ${state.waitRemaining.toFixed(1)}s`;
+    return;
+  }
+  if (state.edgeBlocked) {
+    modeEl.textContent = "状态: 到达草地边缘（转向后可继续）";
     return;
   }
   modeEl.textContent = "状态: 奔跑";
@@ -556,13 +576,22 @@ function updateRunner(delta) {
         0,
         Math.sin(state.runHeadingYaw)
       );
-      p.x += runForward.x * state.speed * delta;
-      p.z += runForward.z * state.speed * delta;
-      p.y = worldGroundHeight(p.x, p.z);
-      state.runDistance += state.speed * delta;
-      state.lap = Math.floor(state.runDistance / (track.end - track.start));
+      const nextX = p.x + runForward.x * state.speed * delta;
+      const nextZ = p.z + runForward.z * state.speed * delta;
+      if (isInsideGroundBounds(nextX, nextZ)) {
+        p.x = nextX;
+        p.z = nextZ;
+        p.y = worldGroundHeight(p.x, p.z);
+        state.runDistance += state.speed * delta;
+        state.lap = Math.floor(state.runDistance / (track.end - track.start));
+        state.edgeBlocked = false;
+      } else {
+        p.y = worldGroundHeight(p.x, p.z);
+        state.edgeBlocked = true;
+      }
     } else {
       p.y = worldGroundHeight(p.x, p.z);
+      state.edgeBlocked = false;
     }
 
     const runForward = new THREE.Vector3(
@@ -571,8 +600,9 @@ function updateRunner(delta) {
       Math.sin(state.runHeadingYaw)
     );
     ahead = p.clone().add(runForward.multiplyScalar(0.7));
-    state.currentSpeed = state.isPaused ? 0 : state.speed;
+    state.currentSpeed = state.isPaused || state.edgeBlocked ? 0 : state.speed;
   } else {
+    state.edgeBlocked = false;
     p.y = worldGroundHeight(p.x, p.z);
     const toTarget = new THREE.Vector3(
       state.targetPoint.x - p.x,
