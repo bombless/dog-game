@@ -91,6 +91,7 @@ const TARGET_WAIT_SECONDS = 6;
 const raycaster = new THREE.Raycaster();
 const pointerNdc = new THREE.Vector2();
 const lastForward = new THREE.Vector3(1, 0, 0);
+const upAxis = new THREE.Vector3(0, 1, 0);
 let groundMesh = null;
 let targetMarker = null;
 
@@ -184,7 +185,7 @@ function onPointerMove(event) {
     pointerState.moved = true;
   }
 
-  if (state.isPaused) {
+  if (state.isPaused || state.behavior === "wait") {
     state.dragYaw = THREE.MathUtils.clamp(
       state.dragYaw - dx * DRAG_YAW_SENSITIVITY,
       -MAX_DRAG_YAW,
@@ -599,25 +600,31 @@ function updateRunner(delta) {
     }
   }
 
-  const forward = ahead.clone().sub(p);
-  if (forward.lengthSq() < 1e-6) {
-    forward.copy(lastForward);
+  const baseForward = ahead.clone().sub(p);
+  if (baseForward.lengthSq() < 1e-6) {
+    baseForward.copy(lastForward);
   } else {
-    forward.normalize();
-    lastForward.copy(forward);
+    baseForward.normalize();
+    lastForward.copy(baseForward);
+  }
+
+  const lookForward = baseForward.clone();
+  if (state.isPaused || state.behavior === "wait") {
+    lookForward.applyAxisAngle(upAxis, state.dragYaw);
+    lookForward.normalize();
   }
 
   runner.position.copy(p);
-  runner.lookAt(p.clone().add(forward));
+  runner.lookAt(p.clone().add(lookForward));
 
   if (dogMesh) {
-    dogMesh.rotation.y = dogFacingOffset + state.dragYaw;
+    dogMesh.rotation.y = dogFacingOffset;
   }
 
   const camTarget = p.clone().add(new THREE.Vector3(0, 1.5, 0));
   const desiredCam = camTarget
     .clone()
-    .add(forward.clone().multiplyScalar(-7.4))
+    .add(lookForward.clone().multiplyScalar(-7.4))
     .add(new THREE.Vector3(0, 3.3, 0));
 
   // Keep the shadow frustum centered around the runner to avoid shadow loss at distance.
