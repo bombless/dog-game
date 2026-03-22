@@ -4,7 +4,8 @@
 
 - `assets/pack_nature/FBX/ShibaInu.fbx` 作为主角狗
 - `assets/Mountain/Mountain_Single.fbx` 作为山体
-- `assets/pack_animals/FBX/*` 作为树木和岩石
+- `assets/pack_animals_gltf/glTF/*` 优先作为树木/灌木（带贴图）
+- `assets/pack_animals/FBX/*` 作为场景兜底资源（例如岩石）
 
 ## 运行
 

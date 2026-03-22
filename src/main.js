@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const canvas = document.querySelector("#scene");
 const speedEl = document.querySelector("#speed");
@@ -45,7 +46,8 @@ scene.add(sunTarget);
 sun.target = sunTarget;
 scene.add(sun);
 
-const loader = new FBXLoader();
+const fbxLoader = new FBXLoader();
+const gltfLoader = new GLTFLoader();
 const clock = new THREE.Clock();
 const keys = new Set();
 
@@ -200,9 +202,22 @@ function configureRenderable(object3d) {
     child.castShadow = true;
     child.receiveShadow = true;
 
-    if (child.material) {
-      child.material.flatShading = true;
-      child.material.needsUpdate = true;
+    if (!child.material) {
+      return;
+    }
+
+    const materials = Array.isArray(child.material)
+      ? child.material
+      : [child.material];
+    for (const material of materials) {
+      const hasBaseMap = Boolean(material.map);
+      if (hasBaseMap) {
+        material.flatShading = false;
+        material.map.colorSpace = THREE.SRGBColorSpace;
+      } else {
+        material.flatShading = true;
+      }
+      material.needsUpdate = true;
     }
   });
 }
@@ -220,8 +235,20 @@ function scaleObjectToHeight(object3d, desiredHeight) {
 async function loadFBX(paths) {
   for (const path of paths) {
     try {
-      const object = await loader.loadAsync(path);
+      const object = await fbxLoader.loadAsync(path);
       return object;
+    } catch (error) {
+      console.warn(`Load failed: ${path}`, error);
+    }
+  }
+  return null;
+}
+
+async function loadGLTF(paths) {
+  for (const path of paths) {
+    try {
+      const asset = await gltfLoader.loadAsync(path);
+      return asset.scene ?? asset.scenes?.[0] ?? null;
     } catch (error) {
       console.warn(`Load failed: ${path}`, error);
     }
@@ -335,30 +362,44 @@ async function addMountains() {
 }
 
 async function addScenery() {
-  const tree = await loadFBX(["./assets/pack_animals/FBX/PineTree_2.fbx"]);
+  const tree =
+    (await loadGLTF([
+      "./assets/pack_animals_gltf/glTF/BirchTree_1.gltf",
+      "./assets/pack_animals_gltf/glTF/MapleTree_1.gltf",
+    ])) ||
+    (await loadFBX(["./assets/pack_animals/FBX/PineTree_2.fbx"]));
+  const bush =
+    (await loadGLTF(["./assets/pack_animals_gltf/glTF/Bush_Large.gltf"])) ||
+    (await loadFBX(["./assets/pack_animals/FBX/Bush_Large.fbx"]));
   const rock = await loadFBX(["./assets/pack_animals/FBX/Rock_2.fbx"]);
-  if (!tree || !rock) {
+  if (!tree || !bush || !rock) {
     return;
   }
 
   configureRenderable(tree);
+  configureRenderable(bush);
   configureRenderable(rock);
   scaleObjectToHeight(tree, 5.8);
+  scaleObjectToHeight(bush, 1.6);
   scaleObjectToHeight(rock, 1.6);
 
   for (let i = 0; i < 70; i += 1) {
-    const isTree = Math.random() > 0.35;
-    const template = isTree ? tree : rock;
+    const roll = Math.random();
+    const isTree = roll > 0.4;
+    const isBush = !isTree && roll > 0.2;
+    const template = isTree ? tree : isBush ? bush : rock;
     const clone = template.clone(true);
     const x = -5 + Math.random() * 340;
     const z = (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 50);
-    const y = worldGroundHeight(x, z) - (isTree ? 0.4 : 0.08);
+    const y = worldGroundHeight(x, z) - (isTree ? 0.35 : 0.06);
 
     clone.position.set(x, y, z);
     clone.rotation.y = Math.random() * Math.PI * 2;
     const localScale = isTree
       ? 0.55 + Math.random() * 0.8
-      : 0.6 + Math.random() * 0.65;
+      : isBush
+        ? 0.65 + Math.random() * 0.6
+        : 0.6 + Math.random() * 0.65;
     clone.scale.multiplyScalar(localScale);
     scene.add(clone);
   }
