@@ -59,9 +59,13 @@ const state = {
   currentSpeed: 8,
   minSpeed: 8,
   sprintSpeed: 13,
+  approachSpeed: 9,
   runnerLoaded: false,
   isPaused: false,
   dragYaw: 0,
+  behavior: "run",
+  waitRemaining: 0,
+  targetPoint: new THREE.Vector3(),
 };
 
 const cameraLookTarget = new THREE.Vector3();
@@ -82,6 +86,13 @@ const TERRAIN_Y_OFFSET = -3.7;
 const SUN_OFFSET = new THREE.Vector3(22, 32, 8);
 const MAX_DRAG_YAW = Math.PI * 0.42;
 const DRAG_YAW_SENSITIVITY = 0.008;
+const TARGET_WAIT_SECONDS = 6;
+
+const raycaster = new THREE.Raycaster();
+const pointerNdc = new THREE.Vector2();
+const lastForward = new THREE.Vector3(1, 0, 0);
+let groundMesh = null;
+let targetMarker = null;
 
 const pointerState = {
   active: false,
@@ -93,6 +104,59 @@ const pointerState = {
 
 function togglePause() {
   state.isPaused = !state.isPaused;
+}
+
+function ensureTargetMarker() {
+  if (targetMarker) {
+    return targetMarker;
+  }
+  targetMarker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 20, 20),
+    new THREE.MeshStandardMaterial({
+      color: "#e33b3b",
+      emissive: "#7a1010",
+      emissiveIntensity: 0.45,
+      roughness: 0.35,
+      metalness: 0.05,
+    })
+  );
+  targetMarker.castShadow = true;
+  targetMarker.visible = false;
+  scene.add(targetMarker);
+  return targetMarker;
+}
+
+function setMoveTarget(worldPoint) {
+  const marker = ensureTargetMarker();
+  state.targetPoint.set(
+    worldPoint.x,
+    worldGroundHeight(worldPoint.x, worldPoint.z),
+    worldPoint.z
+  );
+  marker.position.copy(state.targetPoint);
+  marker.position.y += 0.3;
+  marker.visible = true;
+
+  state.behavior = "approach";
+  state.waitRemaining = TARGET_WAIT_SECONDS;
+  state.isPaused = false;
+  state.dragYaw = 0;
+}
+
+function setMoveTargetFromPointer(event) {
+  if (!groundMesh || !state.runnerLoaded) {
+    return false;
+  }
+  const rect = canvas.getBoundingClientRect();
+  pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointerNdc, camera);
+  const hits = raycaster.intersectObject(groundMesh, false);
+  if (hits.length === 0) {
+    return false;
+  }
+  setMoveTarget(hits[0].point);
+  return true;
 }
 
 function onPointerDown(event) {
@@ -135,7 +199,7 @@ function onPointerUp(event) {
   }
 
   if (!pointerState.moved) {
-    togglePause();
+    setMoveTargetFromPointer(event);
   }
 
   pointerState.active = false;
@@ -186,9 +250,13 @@ function worldGroundHeight(x, z) {
   return terrainHeight(x, z) + TERRAIN_Y_OFFSET;
 }
 
+function trackCenterZ(distance) {
+  return Math.sin(distance * 0.08) * 6 + Math.sin(distance * 0.021) * 11;
+}
+
 function sampleTrack(distance, lateral = 0) {
   const x = distance;
-  const baseZ = Math.sin(distance * 0.08) * 6 + Math.sin(distance * 0.021) * 11;
+  const baseZ = trackCenterZ(distance);
   const z = baseZ + lateral;
   const y = worldGroundHeight(x, z);
   return new THREE.Vector3(x, y, z);
@@ -286,6 +354,7 @@ function addHillyGround() {
     })
   );
   ground.receiveShadow = true;
+  groundMesh = ground;
   scene.add(ground);
 }
 
@@ -304,9 +373,19 @@ function addFallbackDog() {
 function updateHUD() {
   speedEl.textContent = `速度: ${state.currentSpeed.toFixed(1)}`;
   lapEl.textContent = `圈数: ${state.lap}`;
-  modeEl.textContent = state.isPaused
-    ? `状态: 暂停（拖拽角度 ${(THREE.MathUtils.radToDeg(state.dragYaw)).toFixed(0)}°）`
-    : "状态: 奔跑";
+  if (state.isPaused) {
+    modeEl.textContent = `状态: 暂停（拖拽角度 ${(THREE.MathUtils.radToDeg(state.dragYaw)).toFixed(0)}°）`;
+    return;
+  }
+  if (state.behavior === "approach") {
+    modeEl.textContent = "状态: 正在靠近红球";
+    return;
+  }
+  if (state.behavior === "wait") {
+    modeEl.textContent = `状态: 已到达，等待 ${state.waitRemaining.toFixed(1)}s`;
+    return;
+  }
+  modeEl.textContent = "状态: 奔跑";
 }
 
 function addSkyDecor() {
@@ -438,36 +517,98 @@ async function setupRunner() {
 }
 
 function updateRunner(delta) {
-  if (!state.isPaused) {
-    const left = keys.has("ArrowLeft") || keys.has("KeyA");
-    const right = keys.has("ArrowRight") || keys.has("KeyD");
-    const steering = (left ? -1 : 0) + (right ? 1 : 0);
-    const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
-    state.speed = sprinting ? state.sprintSpeed : state.minSpeed;
+  let p = runner.position.clone();
+  let ahead = p.clone().add(lastForward);
 
-    state.lateral = THREE.MathUtils.clamp(
-      state.lateral + steering * delta * 5.2,
-      -track.widthLimit,
-      track.widthLimit
+  if (state.behavior === "run") {
+    if (!state.isPaused) {
+      const left = keys.has("ArrowLeft") || keys.has("KeyA");
+      const right = keys.has("ArrowRight") || keys.has("KeyD");
+      const steering = (left ? -1 : 0) + (right ? 1 : 0);
+      const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
+      state.speed = sprinting ? state.sprintSpeed : state.minSpeed;
+
+      state.lateral = THREE.MathUtils.clamp(
+        state.lateral + steering * delta * 5.2,
+        -track.widthLimit,
+        track.widthLimit
+      );
+      state.distance += state.speed * delta;
+      state.dragYaw = THREE.MathUtils.damp(state.dragYaw, 0, 5, delta);
+    }
+
+    if (state.distance > track.end) {
+      state.distance = track.start;
+      state.lateral *= 0.4;
+      state.lap += 1;
+    }
+
+    p = sampleTrack(state.distance, state.lateral);
+    ahead = sampleTrack(state.distance + 0.7, state.lateral);
+    state.currentSpeed = state.isPaused ? 0 : state.speed;
+  } else {
+    p.y = worldGroundHeight(p.x, p.z);
+    const toTarget = new THREE.Vector3(
+      state.targetPoint.x - p.x,
+      0,
+      state.targetPoint.z - p.z
     );
-    state.distance += state.speed * delta;
-    state.dragYaw = THREE.MathUtils.damp(state.dragYaw, 0, 5, delta);
+    const distanceToTarget = toTarget.length();
+    const targetDirection =
+      distanceToTarget > 0.0001
+        ? toTarget.clone().multiplyScalar(1 / distanceToTarget)
+        : lastForward.clone();
+
+    if (state.behavior === "approach") {
+      if (!state.isPaused) {
+        const step = state.approachSpeed * delta;
+        if (distanceToTarget <= 0.35 || step >= distanceToTarget) {
+          p.x = state.targetPoint.x;
+          p.z = state.targetPoint.z;
+          p.y = worldGroundHeight(p.x, p.z);
+          state.behavior = "wait";
+          state.waitRemaining = TARGET_WAIT_SECONDS;
+        } else {
+          p.x += targetDirection.x * step;
+          p.z += targetDirection.z * step;
+          p.y = worldGroundHeight(p.x, p.z);
+        }
+      }
+      ahead = p.clone().add(targetDirection.multiplyScalar(0.8));
+      state.currentSpeed = state.isPaused ? 0 : state.approachSpeed;
+    }
+
+    if (state.behavior === "wait") {
+      state.currentSpeed = 0;
+      if (!state.isPaused) {
+        state.waitRemaining = Math.max(0, state.waitRemaining - delta);
+        if (state.waitRemaining <= 0) {
+          state.behavior = "run";
+          state.distance = p.x;
+          state.lateral = THREE.MathUtils.clamp(
+            p.z - trackCenterZ(state.distance),
+            -track.widthLimit,
+            track.widthLimit
+          );
+          if (targetMarker) {
+            targetMarker.visible = false;
+          }
+        }
+      }
+      ahead = p.clone().add(lastForward.clone().multiplyScalar(0.8));
+    }
   }
 
-  state.currentSpeed = state.isPaused ? 0 : state.speed;
-
-  if (state.distance > track.end) {
-    state.distance = track.start;
-    state.lateral *= 0.4;
-    state.lap += 1;
+  const forward = ahead.clone().sub(p);
+  if (forward.lengthSq() < 1e-6) {
+    forward.copy(lastForward);
+  } else {
+    forward.normalize();
+    lastForward.copy(forward);
   }
-
-  const p = sampleTrack(state.distance, state.lateral);
-  const ahead = sampleTrack(state.distance + 0.7, state.lateral);
-  const forward = ahead.clone().sub(p).normalize();
 
   runner.position.copy(p);
-  runner.lookAt(ahead);
+  runner.lookAt(p.clone().add(forward));
 
   if (dogMesh) {
     dogMesh.rotation.y = dogFacingOffset + state.dragYaw;
@@ -499,7 +640,7 @@ function animate() {
   }
 
   if (dogMixer) {
-    dogMixer.timeScale = state.isPaused ? 0 : 1;
+    dogMixer.timeScale = state.isPaused || state.behavior === "wait" ? 0 : 1;
     dogMixer.update(delta);
   }
 
