@@ -4,6 +4,9 @@ import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 const canvas = document.querySelector("#scene");
 const speedEl = document.querySelector("#speed");
 const lapEl = document.querySelector("#lap");
+const modeEl = document.querySelector("#mode");
+
+canvas.style.touchAction = "none";
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -51,9 +54,12 @@ const state = {
   distance: -25,
   lateral: 0,
   speed: 8,
+  currentSpeed: 8,
   minSpeed: 8,
   sprintSpeed: 13,
   runnerLoaded: false,
+  isPaused: false,
+  dragYaw: 0,
 };
 
 const cameraLookTarget = new THREE.Vector3();
@@ -72,10 +78,86 @@ const track = {
 
 const TERRAIN_Y_OFFSET = -3.7;
 const SUN_OFFSET = new THREE.Vector3(22, 32, 8);
+const MAX_DRAG_YAW = Math.PI * 0.42;
+const DRAG_YAW_SENSITIVITY = 0.008;
+
+const pointerState = {
+  active: false,
+  id: -1,
+  lastX: 0,
+  totalDx: 0,
+  moved: false,
+};
+
+function togglePause() {
+  state.isPaused = !state.isPaused;
+}
+
+function onPointerDown(event) {
+  if (pointerState.active) {
+    return;
+  }
+  pointerState.active = true;
+  pointerState.id = event.pointerId;
+  pointerState.lastX = event.clientX;
+  pointerState.totalDx = 0;
+  pointerState.moved = false;
+  canvas.setPointerCapture(event.pointerId);
+}
+
+function onPointerMove(event) {
+  if (!pointerState.active || event.pointerId !== pointerState.id) {
+    return;
+  }
+
+  const dx = event.clientX - pointerState.lastX;
+  pointerState.lastX = event.clientX;
+  pointerState.totalDx += dx;
+
+  if (Math.abs(pointerState.totalDx) > 4) {
+    pointerState.moved = true;
+  }
+
+  if (state.isPaused) {
+    state.dragYaw = THREE.MathUtils.clamp(
+      state.dragYaw + dx * DRAG_YAW_SENSITIVITY,
+      -MAX_DRAG_YAW,
+      MAX_DRAG_YAW
+    );
+  }
+}
+
+function onPointerUp(event) {
+  if (!pointerState.active || event.pointerId !== pointerState.id) {
+    return;
+  }
+
+  if (!pointerState.moved) {
+    togglePause();
+  }
+
+  pointerState.active = false;
+  pointerState.id = -1;
+  pointerState.totalDx = 0;
+  pointerState.moved = false;
+  canvas.releasePointerCapture(event.pointerId);
+}
+
+canvas.addEventListener("pointerdown", onPointerDown);
+canvas.addEventListener("pointermove", onPointerMove);
+canvas.addEventListener("pointerup", onPointerUp);
+canvas.addEventListener("pointercancel", onPointerUp);
 
 window.addEventListener("keydown", (event) => {
+  if (event.code === "Space") {
+    if (!event.repeat) {
+      togglePause();
+    }
+    event.preventDefault();
+    return;
+  }
   keys.add(event.code);
-  if (["ArrowLeft", "ArrowRight"].includes(event.code)) {
+  if (["ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
     event.preventDefault();
   }
 });
@@ -193,8 +275,11 @@ function addFallbackDog() {
 }
 
 function updateHUD() {
-  speedEl.textContent = `速度: ${state.speed.toFixed(1)}`;
+  speedEl.textContent = `速度: ${state.currentSpeed.toFixed(1)}`;
   lapEl.textContent = `圈数: ${state.lap}`;
+  modeEl.textContent = state.isPaused
+    ? `状态: 暂停（拖拽角度 ${(THREE.MathUtils.radToDeg(state.dragYaw)).toFixed(0)}°）`
+    : "状态: 奔跑";
 }
 
 function addSkyDecor() {
@@ -312,19 +397,23 @@ async function setupRunner() {
 }
 
 function updateRunner(delta) {
-  const left = keys.has("ArrowLeft") || keys.has("KeyA");
-  const right = keys.has("ArrowRight") || keys.has("KeyD");
-  const steering = (left ? -1 : 0) + (right ? 1 : 0);
-  const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
-  const targetSpeed = sprinting ? state.sprintSpeed : state.minSpeed;
+  if (!state.isPaused) {
+    const left = keys.has("ArrowLeft") || keys.has("KeyA");
+    const right = keys.has("ArrowRight") || keys.has("KeyD");
+    const steering = (left ? -1 : 0) + (right ? 1 : 0);
+    const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
+    state.speed = sprinting ? state.sprintSpeed : state.minSpeed;
 
-  state.speed = THREE.MathUtils.lerp(state.speed, targetSpeed, 1 - Math.exp(-delta * 6));
-  state.lateral = THREE.MathUtils.clamp(
-    state.lateral + steering * delta * 5.2,
-    -track.widthLimit,
-    track.widthLimit
-  );
-  state.distance += state.speed * delta;
+    state.lateral = THREE.MathUtils.clamp(
+      state.lateral + steering * delta * 5.2,
+      -track.widthLimit,
+      track.widthLimit
+    );
+    state.distance += state.speed * delta;
+    state.dragYaw = THREE.MathUtils.damp(state.dragYaw, 0, 5, delta);
+  }
+
+  state.currentSpeed = state.isPaused ? 0 : state.speed;
 
   if (state.distance > track.end) {
     state.distance = track.start;
@@ -340,7 +429,7 @@ function updateRunner(delta) {
   runner.lookAt(ahead);
 
   if (dogMesh) {
-    dogMesh.rotation.y = dogFacingOffset;
+    dogMesh.rotation.y = dogFacingOffset + state.dragYaw;
   }
 
   const camTarget = p.clone().add(new THREE.Vector3(0, 1.5, 0));
@@ -369,6 +458,7 @@ function animate() {
   }
 
   if (dogMixer) {
+    dogMixer.timeScale = state.isPaused ? 0 : 1;
     dogMixer.update(delta);
   }
 
