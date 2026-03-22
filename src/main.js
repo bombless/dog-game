@@ -31,11 +31,15 @@ sun.position.set(22, 32, 8);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 120;
+sun.shadow.camera.far = 160;
 sun.shadow.camera.left = -55;
 sun.shadow.camera.right = 55;
 sun.shadow.camera.top = 55;
 sun.shadow.camera.bottom = -55;
+const sunTarget = new THREE.Object3D();
+sunTarget.position.set(0, 0, 0);
+scene.add(sunTarget);
+sun.target = sunTarget;
 scene.add(sun);
 
 const loader = new FBXLoader();
@@ -67,6 +71,7 @@ const track = {
 };
 
 const TERRAIN_Y_OFFSET = -3.7;
+const SUN_OFFSET = new THREE.Vector3(22, 32, 8);
 
 window.addEventListener("keydown", (event) => {
   keys.add(event.code);
@@ -343,6 +348,13 @@ function updateRunner(delta) {
     .clone()
     .add(forward.clone().multiplyScalar(-7.4))
     .add(new THREE.Vector3(0, 3.3, 0));
+
+  // Keep the shadow frustum centered around the runner to avoid shadow loss at distance.
+  const sunLerp = 1 - Math.exp(-delta * 3.2);
+  const targetLerp = 1 - Math.exp(-delta * 6);
+  sun.position.lerp(p.clone().add(SUN_OFFSET), sunLerp);
+  sunTarget.position.lerp(p, targetLerp);
+  sunTarget.updateMatrixWorld();
 
   camera.position.lerp(desiredCam, 1 - Math.exp(-delta * 5));
   cameraLookTarget.lerp(camTarget, 1 - Math.exp(-delta * 8));
