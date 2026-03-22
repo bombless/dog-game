@@ -60,6 +60,8 @@ const state = {
   minSpeed: 8,
   sprintSpeed: 13,
   approachSpeed: 9,
+  runHeadingYaw: 0,
+  runDistance: 0,
   runnerLoaded: false,
   isPaused: false,
   dragYaw: 0,
@@ -104,7 +106,17 @@ const pointerState = {
 };
 
 function togglePause() {
+  const willResume = state.isPaused;
   state.isPaused = !state.isPaused;
+  if (willResume && state.behavior === "run") {
+    const previewForward = new THREE.Vector3(
+      Math.cos(state.runHeadingYaw),
+      0,
+      Math.sin(state.runHeadingYaw)
+    ).applyAxisAngle(upAxis, state.dragYaw);
+    state.runHeadingYaw = Math.atan2(previewForward.z, previewForward.x);
+    state.dragYaw = 0;
+  }
 }
 
 function ensureTargetMarker() {
@@ -522,30 +534,43 @@ function updateRunner(delta) {
   let ahead = p.clone().add(lastForward);
 
   if (state.behavior === "run") {
+    const steering = (keys.has("ArrowLeft") || keys.has("KeyA") ? -1 : 0) +
+      (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0);
+    const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
+    const baseSpeed = sprinting ? state.sprintSpeed : state.minSpeed;
+
     if (!state.isPaused) {
-      const left = keys.has("ArrowLeft") || keys.has("KeyA");
-      const right = keys.has("ArrowRight") || keys.has("KeyD");
-      const steering = (left ? -1 : 0) + (right ? 1 : 0);
-      const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
-      state.speed = sprinting ? state.sprintSpeed : state.minSpeed;
-
-      state.lateral = THREE.MathUtils.clamp(
-        state.lateral + steering * delta * 5.2,
-        -track.widthLimit,
-        track.widthLimit
+      if (Math.abs(state.dragYaw) > 1e-4) {
+        const previewForward = new THREE.Vector3(
+          Math.cos(state.runHeadingYaw),
+          0,
+          Math.sin(state.runHeadingYaw)
+        ).applyAxisAngle(upAxis, state.dragYaw);
+        state.runHeadingYaw = Math.atan2(previewForward.z, previewForward.x);
+        state.dragYaw = 0;
+      }
+      state.speed = baseSpeed;
+      state.runHeadingYaw += steering * delta * 1.9;
+      const runForward = new THREE.Vector3(
+        Math.cos(state.runHeadingYaw),
+        0,
+        Math.sin(state.runHeadingYaw)
       );
-      state.distance += state.speed * delta;
-      state.dragYaw = THREE.MathUtils.damp(state.dragYaw, 0, 5, delta);
+      p.x += runForward.x * state.speed * delta;
+      p.z += runForward.z * state.speed * delta;
+      p.y = worldGroundHeight(p.x, p.z);
+      state.runDistance += state.speed * delta;
+      state.lap = Math.floor(state.runDistance / (track.end - track.start));
+    } else {
+      p.y = worldGroundHeight(p.x, p.z);
     }
 
-    if (state.distance > track.end) {
-      state.distance = track.start;
-      state.lateral *= 0.4;
-      state.lap += 1;
-    }
-
-    p = sampleTrack(state.distance, state.lateral);
-    ahead = sampleTrack(state.distance + 0.7, state.lateral);
+    const runForward = new THREE.Vector3(
+      Math.cos(state.runHeadingYaw),
+      0,
+      Math.sin(state.runHeadingYaw)
+    );
+    ahead = p.clone().add(runForward.multiplyScalar(0.7));
     state.currentSpeed = state.isPaused ? 0 : state.speed;
   } else {
     p.y = worldGroundHeight(p.x, p.z);
@@ -584,13 +609,9 @@ function updateRunner(delta) {
       if (!state.isPaused) {
         state.waitRemaining = Math.max(0, state.waitRemaining - delta);
         if (state.waitRemaining <= 0) {
+          state.runHeadingYaw = Math.atan2(lastForward.z, lastForward.x) + state.dragYaw;
+          state.dragYaw = 0;
           state.behavior = "run";
-          state.distance = p.x;
-          state.lateral = THREE.MathUtils.clamp(
-            p.z - trackCenterZ(state.distance),
-            -track.widthLimit,
-            track.widthLimit
-          );
           if (targetMarker) {
             targetMarker.visible = false;
           }
@@ -660,7 +681,13 @@ async function bootstrap() {
   addHillyGround();
   addSkyDecor();
   await Promise.all([addMountains(), addScenery(), setupRunner()]);
-  cameraLookTarget.copy(sampleTrack(state.distance));
+  const start = sampleTrack(state.distance, state.lateral);
+  const startAhead = sampleTrack(state.distance + 0.7, state.lateral);
+  const startForward = startAhead.clone().sub(start).normalize();
+  runner.position.copy(start);
+  lastForward.copy(startForward);
+  state.runHeadingYaw = Math.atan2(startForward.z, startForward.x);
+  cameraLookTarget.copy(start.clone().add(startForward));
   animate();
 }
 
