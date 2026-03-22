@@ -66,6 +66,8 @@ const track = {
   widthLimit: 5.2,
 };
 
+const TERRAIN_Y_OFFSET = -3.7;
+
 window.addEventListener("keydown", (event) => {
   keys.add(event.code);
   if (["ArrowLeft", "ArrowRight"].includes(event.code)) {
@@ -91,11 +93,15 @@ function terrainHeight(x, z) {
   );
 }
 
+function worldGroundHeight(x, z) {
+  return terrainHeight(x, z) + TERRAIN_Y_OFFSET;
+}
+
 function sampleTrack(distance, lateral = 0) {
   const x = distance;
   const baseZ = Math.sin(distance * 0.08) * 6 + Math.sin(distance * 0.021) * 11;
   const z = baseZ + lateral;
-  const y = terrainHeight(x, z);
+  const y = worldGroundHeight(x, z);
   return new THREE.Vector3(x, y, z);
 }
 
@@ -143,18 +149,18 @@ function addHillyGround() {
   const segD = 110;
 
   const geometry = new THREE.PlaneGeometry(width, depth, segW, segD);
+  geometry.rotateX(-Math.PI / 2);
+  geometry.translate(140, 0, 0);
+
   const position = geometry.attributes.position;
 
   for (let i = 0; i < position.count; i += 1) {
     const x = position.getX(i);
-    const z = position.getY(i);
-    const y = terrainHeight(x + 140, z) - 2.2;
-    position.setZ(i, y);
+    const z = position.getZ(i);
+    position.setY(i, worldGroundHeight(x, z));
   }
 
   geometry.computeVertexNormals();
-  geometry.rotateX(-Math.PI / 2);
-  geometry.translate(140, -1.5, 0);
 
   const ground = new THREE.Mesh(
     geometry,
@@ -231,7 +237,7 @@ async function addMountains() {
 
   for (const place of placements) {
     const clone = mountain.clone(true);
-    clone.position.set(place.x, terrainHeight(place.x, place.z) - 2, place.z);
+    clone.position.set(place.x, worldGroundHeight(place.x, place.z) + 1.7, place.z);
     clone.scale.multiplyScalar(place.scale);
     clone.rotation.y = place.rot;
     scene.add(clone);
@@ -256,7 +262,7 @@ async function addScenery() {
     const clone = template.clone(true);
     const x = -5 + Math.random() * 340;
     const z = (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 50);
-    const y = terrainHeight(x, z) - (isTree ? 0.4 : 0.08);
+    const y = worldGroundHeight(x, z) - (isTree ? 0.4 : 0.08);
 
     clone.position.set(x, y, z);
     clone.rotation.y = Math.random() * Math.PI * 2;
@@ -282,9 +288,10 @@ async function setupRunner() {
   dogMesh = dog;
   configureRenderable(dogMesh);
   scaleObjectToHeight(dogMesh, 1.35);
-  dogMesh.position.y = 0.05;
-  dogMesh.rotation.y = Math.PI;
-  dogFacingOffset = Math.PI;
+  const dogBox = new THREE.Box3().setFromObject(dogMesh);
+  dogMesh.position.y += -dogBox.min.y + 0.02;
+  dogMesh.rotation.y = 0;
+  dogFacingOffset = 0;
   runner.add(dogMesh);
 
   if (dogMesh.animations && dogMesh.animations.length > 0) {
@@ -325,7 +332,6 @@ function updateRunner(delta) {
   const forward = ahead.clone().sub(p).normalize();
 
   runner.position.copy(p);
-  runner.position.y += 0.08;
   runner.lookAt(ahead);
 
   if (dogMesh) {
