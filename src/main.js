@@ -73,7 +73,6 @@ const state = {
   isPaused: false,
   dragYaw: 0,
   behavior: "run",
-  waitRemaining: 0,
   targetPoint: new THREE.Vector3(),
 };
 
@@ -98,11 +97,12 @@ const TERRAIN_Y_OFFSET = -3.7;
 const SUN_OFFSET = new THREE.Vector3(22, 32, 8);
 const MAX_DRAG_YAW = Math.PI * 0.42;
 const DRAG_YAW_SENSITIVITY = 0.008;
-const TARGET_WAIT_SECONDS = 6;
 const TARGET_ORBIT_RADIUS = 1.45;
 const TARGET_ORBIT_TOLERANCE = 0.08;
 const TARGET_ORBIT_ANGULAR_SPEED = 2.4;
 const FULL_CIRCLE_RAD = Math.PI * 2;
+const TARGET_ORBIT_TURNS = 2;
+const TARGET_ORBIT_TOTAL_RAD = FULL_CIRCLE_RAD * TARGET_ORBIT_TURNS;
 const COW_COUNT = 8;
 const GROUND = {
   width: 420,
@@ -245,7 +245,6 @@ function setMoveTarget(worldPoint) {
 
   state.behavior = "approach";
   state.orbitCameraLocked = false;
-  state.waitRemaining = TARGET_WAIT_SECONDS;
   state.orbitProgress = 0;
   const relX = runner.position.x - state.targetPoint.x;
   const relZ = runner.position.z - state.targetPoint.z;
@@ -305,7 +304,7 @@ function onPointerMove(event) {
     pointerState.moved = true;
   }
 
-  if (state.isPaused || state.behavior === "wait") {
+  if (state.isPaused) {
     state.dragYaw = THREE.MathUtils.clamp(
       state.dragYaw - dx * DRAG_YAW_SENSITIVITY,
       -MAX_DRAG_YAW,
@@ -673,12 +672,8 @@ function updateHUD() {
     return;
   }
   if (state.behavior === "orbit") {
-    const progress = Math.min(100, (state.orbitProgress / FULL_CIRCLE_RAD) * 100);
+    const progress = Math.min(100, (state.orbitProgress / TARGET_ORBIT_TOTAL_RAD) * 100);
     modeEl.textContent = `状态: 绕圈中 ${progress.toFixed(0)}%`;
-    return;
-  }
-  if (state.behavior === "wait") {
-    modeEl.textContent = `状态: 已到达，等待 ${state.waitRemaining.toFixed(1)}s`;
     return;
   }
   if (state.edgeBlocked) {
@@ -1042,14 +1037,10 @@ function updateRunner(delta) {
 
     if (state.behavior === "orbit") {
       if (!state.isPaused) {
-        const remaining = Math.max(0, FULL_CIRCLE_RAD - state.orbitProgress);
+        const remaining = Math.max(0, TARGET_ORBIT_TOTAL_RAD - state.orbitProgress);
         const deltaAngle = Math.min(TARGET_ORBIT_ANGULAR_SPEED * delta, remaining);
         state.orbitProgress += deltaAngle;
         state.orbitAngle += deltaAngle * state.orbitDirection;
-        if (state.orbitProgress >= FULL_CIRCLE_RAD - 1e-6) {
-          state.behavior = "wait";
-          state.waitRemaining = TARGET_WAIT_SECONDS;
-        }
       }
 
       const cosA = Math.cos(state.orbitAngle);
@@ -1065,22 +1056,15 @@ function updateRunner(delta) {
       );
       ahead = p.clone().add(tangent.multiplyScalar(0.85));
       state.currentSpeed = state.isPaused ? 0 : TARGET_ORBIT_RADIUS * TARGET_ORBIT_ANGULAR_SPEED;
-    }
 
-    if (state.behavior === "wait") {
-      state.currentSpeed = 0;
-      if (!state.isPaused) {
-        state.waitRemaining = Math.max(0, state.waitRemaining - delta);
-        if (state.waitRemaining <= 0) {
-          state.runHeadingYaw = Math.atan2(lastForward.z, lastForward.x) + state.dragYaw;
-          state.dragYaw = 0;
-          state.behavior = "run";
-          if (targetMarker) {
-            targetMarker.visible = false;
-          }
+      if (state.orbitProgress >= TARGET_ORBIT_TOTAL_RAD - 1e-6) {
+        state.runHeadingYaw = Math.atan2(tangent.z, tangent.x);
+        state.dragYaw = 0;
+        state.behavior = "run";
+        if (targetMarker) {
+          targetMarker.visible = false;
         }
       }
-      ahead = p.clone().add(lastForward.clone().multiplyScalar(0.8));
     }
   }
 
@@ -1093,7 +1077,7 @@ function updateRunner(delta) {
   }
 
   const lookForward = baseForward.clone();
-  if (state.isPaused || state.behavior === "wait") {
+  if (state.isPaused) {
     lookForward.applyAxisAngle(upAxis, state.dragYaw);
     lookForward.normalize();
   }
@@ -1142,7 +1126,7 @@ function animate() {
   }
 
   if (dogMixer) {
-    dogMixer.timeScale = state.isPaused || state.behavior === "wait" ? 0 : 1;
+    dogMixer.timeScale = state.isPaused ? 0 : 1;
     dogMixer.update(delta);
   }
   for (const mixer of ambientMixers) {
