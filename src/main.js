@@ -91,6 +91,7 @@ const SUN_OFFSET = new THREE.Vector3(22, 32, 8);
 const MAX_DRAG_YAW = Math.PI * 0.42;
 const DRAG_YAW_SENSITIVITY = 0.008;
 const TARGET_WAIT_SECONDS = 6;
+const TARGET_STOP_DISTANCE = 1.45;
 const GROUND = {
   width: 420,
   depth: 170,
@@ -708,9 +709,12 @@ function updateRunner(delta) {
     if (state.behavior === "approach") {
       if (!state.isPaused) {
         const step = state.approachSpeed * delta;
-        if (distanceToTarget <= 0.35 || step >= distanceToTarget) {
-          p.x = state.targetPoint.x;
-          p.z = state.targetPoint.z;
+        if (distanceToTarget <= TARGET_STOP_DISTANCE || step >= distanceToTarget) {
+          const clampedStep = Math.max(0, distanceToTarget - TARGET_STOP_DISTANCE);
+          if (clampedStep > 0.0001) {
+            p.x += targetDirection.x * clampedStep;
+            p.z += targetDirection.z * clampedStep;
+          }
           p.y = worldGroundHeight(p.x, p.z);
           state.behavior = "wait";
           state.waitRemaining = TARGET_WAIT_SECONDS;
