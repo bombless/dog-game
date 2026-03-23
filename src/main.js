@@ -593,44 +593,107 @@ async function addMountains() {
 }
 
 async function addScenery() {
-  const tree =
-    (await loadGLTF([
-      "./assets/pack_animals_gltf/glTF/BirchTree_1.gltf",
-      "./assets/pack_animals_gltf/glTF/MapleTree_1.gltf",
-    ])) ||
-    (await loadFBX(["./assets/pack_animals/FBX/PineTree_2.fbx"]));
-  const bush =
-    (await loadGLTF(["./assets/pack_animals_gltf/glTF/Bush_Large.gltf"])) ||
-    (await loadFBX(["./assets/pack_animals/FBX/Bush_Large.fbx"]));
-  const rock = await loadFBX(["./assets/pack_animals/FBX/Rock_2.fbx"]);
-  if (!tree || !bush || !rock) {
+  const treeGltfPaths = [
+    "./assets/pack_animals_gltf/glTF/BirchTree_1.gltf",
+    "./assets/pack_animals_gltf/glTF/BirchTree_2.gltf",
+    "./assets/pack_animals_gltf/glTF/BirchTree_3.gltf",
+    "./assets/pack_animals_gltf/glTF/BirchTree_4.gltf",
+    "./assets/pack_animals_gltf/glTF/BirchTree_5.gltf",
+    "./assets/pack_animals_gltf/glTF/MapleTree_1.gltf",
+    "./assets/pack_animals_gltf/glTF/MapleTree_2.gltf",
+    "./assets/pack_animals_gltf/glTF/MapleTree_3.gltf",
+    "./assets/pack_animals_gltf/glTF/MapleTree_4.gltf",
+    "./assets/pack_animals_gltf/glTF/MapleTree_5.gltf",
+    "./assets/pack_animals_gltf/glTF/DeadTree_3.gltf",
+    "./assets/pack_animals_gltf/glTF/DeadTree_7.gltf",
+  ];
+  const bushGltfPaths = [
+    "./assets/pack_animals_gltf/glTF/Bush.gltf",
+    "./assets/pack_animals_gltf/glTF/Bush_Large.gltf",
+    "./assets/pack_animals_gltf/glTF/Bush_Flowers.gltf",
+    "./assets/pack_animals_gltf/glTF/Bush_Small.gltf",
+    "./assets/pack_animals_gltf/glTF/Bush_Large_Flowers.gltf",
+    "./assets/pack_animals_gltf/glTF/Bush_Small_Flowers.gltf",
+  ];
+  const rockFbxPaths = [
+    "./assets/pack_animals/FBX/Rock_1.fbx",
+    "./assets/pack_animals/FBX/Rock_2.fbx",
+    "./assets/pack_animals/FBX/Rock_3.fbx",
+    "./assets/pack_animals/FBX/Rock_4.fbx",
+    "./assets/pack_animals/FBX/Rock_5.fbx",
+  ];
+
+  const [treeTemplatesRaw, bushTemplatesRaw, rockTemplatesRaw] = await Promise.all([
+    Promise.all(treeGltfPaths.map((path) => loadGLTF([path]))),
+    Promise.all(bushGltfPaths.map((path) => loadGLTF([path]))),
+    Promise.all(rockFbxPaths.map((path) => loadFBX([path]))),
+  ]);
+
+  const treeTemplates = treeTemplatesRaw.filter(Boolean);
+  const bushTemplates = bushTemplatesRaw.filter(Boolean);
+  const rockTemplates = rockTemplatesRaw.filter(Boolean);
+
+  // Safety fallback in case glTF files are not present.
+  if (treeTemplates.length === 0) {
+    const fallbackTree = await loadFBX(["./assets/pack_animals/FBX/PineTree_2.fbx"]);
+    if (fallbackTree) {
+      treeTemplates.push(fallbackTree);
+    }
+  }
+  if (bushTemplates.length === 0) {
+    const fallbackBush = await loadFBX(["./assets/pack_animals/FBX/Bush_Large.fbx"]);
+    if (fallbackBush) {
+      bushTemplates.push(fallbackBush);
+    }
+  }
+  if (rockTemplates.length === 0) {
+    const fallbackRock = await loadFBX(["./assets/pack_animals/FBX/Rock_2.fbx"]);
+    if (fallbackRock) {
+      rockTemplates.push(fallbackRock);
+    }
+  }
+
+  if (treeTemplates.length === 0 || bushTemplates.length === 0 || rockTemplates.length === 0) {
     return;
   }
 
-  configureRenderable(tree);
-  configureRenderable(bush);
-  configureRenderable(rock);
-  scaleObjectToHeight(tree, 5.8);
-  scaleObjectToHeight(bush, 1.6);
-  scaleObjectToHeight(rock, 1.6);
+  for (const tree of treeTemplates) {
+    configureRenderable(tree);
+    scaleObjectToHeight(tree, 5.8);
+  }
+  for (const bush of bushTemplates) {
+    configureRenderable(bush);
+    scaleObjectToHeight(bush, 1.6);
+  }
+  for (const rock of rockTemplates) {
+    configureRenderable(rock);
+    scaleObjectToHeight(rock, 1.6);
+  }
 
-  for (let i = 0; i < 70; i += 1) {
+  const chooseRandom = (items) => items[Math.floor(Math.random() * items.length)];
+
+  for (let i = 0; i < 120; i += 1) {
     const roll = Math.random();
-    const isTree = roll > 0.4;
-    const isBush = !isTree && roll > 0.2;
-    const template = isTree ? tree : isBush ? bush : rock;
+    const isTree = roll > 0.34;
+    const isBush = !isTree && roll > 0.12;
+    const template = isTree
+      ? chooseRandom(treeTemplates)
+      : isBush
+        ? chooseRandom(bushTemplates)
+        : chooseRandom(rockTemplates);
+
     const clone = template.clone(true);
     const x = -5 + Math.random() * 340;
-    const z = (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 50);
+    const z = (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 52);
     const y = worldGroundHeight(x, z) - (isTree ? 0.35 : 0.06);
 
     clone.position.set(x, y, z);
     clone.rotation.y = Math.random() * Math.PI * 2;
     const localScale = isTree
-      ? 0.55 + Math.random() * 0.8
+      ? 0.5 + Math.random() * 0.9
       : isBush
-        ? 0.65 + Math.random() * 0.6
-        : 0.6 + Math.random() * 0.65;
+        ? 0.55 + Math.random() * 0.75
+        : 0.55 + Math.random() * 0.7;
     clone.scale.multiplyScalar(localScale);
     scene.add(clone);
   }
