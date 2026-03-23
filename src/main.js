@@ -86,6 +86,7 @@ let dogMixer = null;
 let dogFacingOffset = 0;
 let dogModelEntries = [];
 let activeDogModelIndex = -1;
+const ambientMixers = [];
 
 const track = {
   start: -25,
@@ -102,6 +103,7 @@ const TARGET_ORBIT_RADIUS = 1.45;
 const TARGET_ORBIT_TOLERANCE = 0.08;
 const TARGET_ORBIT_ANGULAR_SPEED = 2.4;
 const FULL_CIRCLE_RAD = Math.PI * 2;
+const COW_COUNT = 8;
 const GROUND = {
   width: 420,
   depth: 170,
@@ -845,6 +847,68 @@ async function addScenery() {
   }
 }
 
+function pickCowGrazeClip(clips) {
+  if (!clips || clips.length === 0) {
+    return null;
+  }
+  const eating = clips.find((clip) => /(^|[|_:/\s])eating($|[|_:/\s])/i.test(clip.name));
+  if (eating) {
+    return eating;
+  }
+  const headLow = clips.find((clip) => /headlow|head_low|head low/i.test(clip.name));
+  if (headLow) {
+    return headLow;
+  }
+  const idle = clips.find((clip) => /(^|[|_:/\s])idle($|[|_:/\s])/i.test(clip.name));
+  if (idle) {
+    return idle;
+  }
+  return clips[0];
+}
+
+async function addCows() {
+  const cowPaths = ["./assets/pack_nature/FBX/Cow.fbx", "./Cow.fbx"];
+  const cowsRaw = await Promise.all(
+    Array.from({ length: COW_COUNT }, () => loadFBX(cowPaths))
+  );
+  const cows = cowsRaw.filter(Boolean);
+  if (cows.length === 0) {
+    return;
+  }
+
+  for (const cow of cows) {
+    configureRenderable(cow);
+    scaleObjectToHeight(cow, 1.8);
+    const cowBox = new THREE.Box3().setFromObject(cow);
+    const footOffsetY = -cowBox.min.y;
+    const cowClips = cow.animations ?? [];
+    const grazeClip = pickCowGrazeClip(cowClips);
+
+    const side = Math.random() > 0.5 ? 1 : -1;
+    const x = GROUND_MIN_X + 20 + Math.random() * (GROUND_MAX_X - GROUND_MIN_X - 40);
+    const z = side * (16 + Math.random() * 34);
+    cow.position.set(x, worldGroundHeight(x, z) + footOffsetY, z);
+    cow.rotation.y = Math.random() * Math.PI * 2;
+
+    const scaleJitter = 0.9 + Math.random() * 0.25;
+    cow.scale.multiplyScalar(scaleJitter);
+    scene.add(cow);
+
+    if (grazeClip) {
+      const mixer = new THREE.AnimationMixer(cow);
+      const action = mixer.clipAction(grazeClip);
+      action.enabled = true;
+      action.clampWhenFinished = false;
+      action.setLoop(THREE.LoopRepeat, Infinity);
+      action.setEffectiveWeight(1);
+      action.setEffectiveTimeScale(0.8 + Math.random() * 0.3);
+      action.play();
+      mixer.setTime(Math.random() * Math.max(0.01, grazeClip.duration));
+      ambientMixers.push(mixer);
+    }
+  }
+}
+
 async function setupRunner() {
   const [shibaDog, classicDog] = await Promise.all([
     loadFBX(["./assets/pack_nature/FBX/ShibaInu.fbx"]),
@@ -1081,6 +1145,9 @@ function animate() {
     dogMixer.timeScale = state.isPaused || state.behavior === "wait" ? 0 : 1;
     dogMixer.update(delta);
   }
+  for (const mixer of ambientMixers) {
+    mixer.update(delta);
+  }
 
   updateHUD();
   renderer.render(scene, camera);
@@ -1090,7 +1157,7 @@ function animate() {
 async function bootstrap() {
   addHillyGround();
   addSkyDecor();
-  await Promise.all([addMountains(), addScenery(), setupRunner()]);
+  await Promise.all([addMountains(), addScenery(), addCows(), setupRunner()]);
   setMusicTrack(0);
   const start = sampleTrack(state.distance, state.lateral);
   const startAhead = sampleTrack(state.distance + 0.7, state.lateral);
