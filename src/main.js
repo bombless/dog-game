@@ -7,6 +7,7 @@ const speedEl = document.querySelector("#speed");
 const lapEl = document.querySelector("#lap");
 const modeEl = document.querySelector("#mode");
 const musicEl = document.querySelector("#music");
+const dogModelEl = document.querySelector("#dog-model");
 
 canvas.style.touchAction = "none";
 
@@ -83,6 +84,8 @@ scene.add(runner);
 let dogMesh = null;
 let dogMixer = null;
 let dogFacingOffset = 0;
+let dogModelEntries = [];
+let activeDogModelIndex = -1;
 
 const track = {
   start: -25,
@@ -331,6 +334,13 @@ canvas.addEventListener("pointerup", onPointerUp);
 canvas.addEventListener("pointercancel", onPointerUp);
 
 window.addEventListener("keydown", (event) => {
+  if (event.code === "KeyK") {
+    if (!event.repeat) {
+      cycleDogModel();
+    }
+    event.preventDefault();
+    return;
+  }
   if (event.code === "KeyM") {
     if (!event.repeat) {
       toggleMusic();
@@ -355,7 +365,7 @@ window.addEventListener("keydown", (event) => {
   }
   tryStartMusicFromUserGesture();
   keys.add(event.code);
-  if (["ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
+  if (["ArrowLeft", "ArrowRight", "Space", "KeyK"].includes(event.code)) {
     event.preventDefault();
   }
 });
@@ -506,6 +516,139 @@ function addFallbackDog() {
   state.runnerLoaded = true;
 }
 
+function getActiveDogModelLabel() {
+  if (activeDogModelIndex < 0 || activeDogModelIndex >= dogModelEntries.length) {
+    return "方块狗";
+  }
+  return dogModelEntries[activeDogModelIndex].label;
+}
+
+function setActiveDogModel(index) {
+  if (dogModelEntries.length === 0) {
+    return;
+  }
+  const wrappedIndex = THREE.MathUtils.euclideanModulo(index, dogModelEntries.length);
+  const nextEntry = dogModelEntries[wrappedIndex];
+  if (!nextEntry) {
+    return;
+  }
+
+  if (dogMesh && dogMesh.parent === runner) {
+    runner.remove(dogMesh);
+  }
+
+  activeDogModelIndex = wrappedIndex;
+  dogMesh = nextEntry.mesh;
+  dogMixer = null;
+  dogFacingOffset = nextEntry.facingOffset;
+
+  dogMesh.visible = true;
+  runner.add(dogMesh);
+  startDogAnimationForEntry(nextEntry);
+}
+
+function cycleDogModel() {
+  if (dogModelEntries.length <= 1) {
+    return;
+  }
+  setActiveDogModel(activeDogModelIndex + 1);
+}
+
+function pickRunnerClip(clips, mode = "default") {
+  if (!clips || clips.length === 0) {
+    return null;
+  }
+  if (mode === "shiba") {
+    const shibaGallop = clips.find((clip) =>
+      /(^|[|_:/\s])gallop($|[|_:/\s])/i.test(clip.name)
+    );
+    if (shibaGallop) {
+      return shibaGallop;
+    }
+    const shibaWalk = clips.find((clip) =>
+      /(^|[|_:/\s])walk($|[|_:/\s])/i.test(clip.name)
+    );
+    if (shibaWalk) {
+      return shibaWalk;
+    }
+    return clips[0];
+  }
+  if (mode === "dog-force-run") {
+    const dogRun = clips.find((clip) => /(^|[|_:/\s])run($|[|_:/\s])/i.test(clip.name));
+    if (dogRun) {
+      return dogRun;
+    }
+    const dogWalk = clips.find((clip) => /(^|[|_:/\s])walk($|[|_:/\s])/i.test(clip.name));
+    if (dogWalk) {
+      return dogWalk;
+    }
+    return clips[0];
+  }
+
+  const exactRun = clips.find((clip) => /(^|[|_:/\s])run($|[|_:/\s])/i.test(clip.name));
+  if (exactRun) {
+    return exactRun;
+  }
+  const exactWalk = clips.find((clip) => /(^|[|_:/\s])walk($|[|_:/\s])/i.test(clip.name));
+  if (exactWalk) {
+    return exactWalk;
+  }
+  return (
+    clips.find((clip) => /run|walk|trot|gallop|jog|sprint/i.test(clip.name)) || clips[0]
+  );
+}
+
+function buildDogModelEntry(
+  rawDog,
+  { label, desiredHeight, facingOffset = 0, clipMode = "default" }
+) {
+  if (!rawDog) {
+    return null;
+  }
+
+  configureRenderable(rawDog);
+  scaleObjectToHeight(rawDog, desiredHeight);
+  const dogBox = new THREE.Box3().setFromObject(rawDog);
+  rawDog.position.y += -dogBox.min.y + 0.02;
+  rawDog.rotation.y = 0;
+  rawDog.visible = false;
+
+  return {
+    label,
+    mesh: rawDog,
+    clipMode,
+    facingOffset,
+  };
+}
+
+function startDogAnimationForEntry(entry) {
+  if (!entry || !entry.mesh) {
+    return;
+  }
+
+  const clips = entry.mesh.animations ?? [];
+  if (clips.length === 0) {
+    dogMixer = null;
+    return;
+  }
+
+  const runClip = pickRunnerClip(clips, entry.clipMode);
+  if (!runClip) {
+    dogMixer = null;
+    return;
+  }
+
+  dogMixer = new THREE.AnimationMixer(entry.mesh);
+  const runAction = dogMixer.clipAction(runClip);
+  runAction.enabled = true;
+  runAction.clampWhenFinished = false;
+  runAction.setLoop(THREE.LoopRepeat, Infinity);
+  runAction.setEffectiveWeight(1);
+  runAction.setEffectiveTimeScale(1);
+  runAction.reset();
+  runAction.play();
+}
+
 function updateHUD() {
   speedEl.textContent = `速度: ${state.currentSpeed.toFixed(1)}`;
   lapEl.textContent = `圈数: ${state.lap}`;
@@ -516,6 +659,9 @@ function updateHUD() {
       ? "待播放"
       : "播放中";
   musicEl.textContent = `音乐: ${musicStatus} - ${track.title}`;
+  if (dogModelEl) {
+    dogModelEl.textContent = `狗模型: ${getActiveDogModelLabel()}（K 可切换）`;
+  }
   if (state.isPaused) {
     modeEl.textContent = `状态: 暂停（拖拽角度 ${(THREE.MathUtils.radToDeg(state.dragYaw)).toFixed(0)}°）`;
     return;
@@ -700,33 +846,32 @@ async function addScenery() {
 }
 
 async function setupRunner() {
-  const dog = await loadFBX([
-    "./assets/pack_nature/FBX/ShibaInu.fbx",
-    "./assets/Dog/Dog.fbx",
+  const [shibaDog, classicDog] = await Promise.all([
+    loadFBX(["./assets/pack_nature/FBX/ShibaInu.fbx"]),
+    loadFBX(["./assets/Dog/Dog.fbx"]),
   ]);
 
-  if (!dog) {
+  dogModelEntries = [
+    buildDogModelEntry(shibaDog, {
+      label: "ShibaInu",
+      desiredHeight: 1.35,
+      facingOffset: 0,
+      clipMode: "shiba",
+    }),
+    buildDogModelEntry(classicDog, {
+      label: "Dog",
+      desiredHeight: 1.35,
+      facingOffset: 0,
+      clipMode: "dog-force-run",
+    }),
+  ].filter(Boolean);
+
+  if (dogModelEntries.length === 0) {
     addFallbackDog();
     return;
   }
 
-  dogMesh = dog;
-  configureRenderable(dogMesh);
-  scaleObjectToHeight(dogMesh, 1.35);
-  const dogBox = new THREE.Box3().setFromObject(dogMesh);
-  dogMesh.position.y += -dogBox.min.y + 0.02;
-  dogMesh.rotation.y = 0;
-  dogFacingOffset = 0;
-  runner.add(dogMesh);
-
-  if (dogMesh.animations && dogMesh.animations.length > 0) {
-    dogMixer = new THREE.AnimationMixer(dogMesh);
-    const runClip =
-      dogMesh.animations.find((clip) => /run|walk|trot|gallop/i.test(clip.name)) ||
-      dogMesh.animations[0];
-    const action = dogMixer.clipAction(runClip);
-    action.play();
-  }
+  setActiveDogModel(0);
 
   state.runnerLoaded = true;
 }
