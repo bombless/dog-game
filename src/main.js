@@ -67,6 +67,7 @@ const state = {
   orbitAngle: 0,
   orbitProgress: 0,
   orbitDirection: 1,
+  orbitCameraLocked: false,
   runnerLoaded: false,
   isPaused: false,
   dragYaw: 0,
@@ -114,6 +115,8 @@ const raycaster = new THREE.Raycaster();
 const pointerNdc = new THREE.Vector2();
 const lastForward = new THREE.Vector3(1, 0, 0);
 const upAxis = new THREE.Vector3(0, 1, 0);
+const orbitCameraPosition = new THREE.Vector3();
+const orbitCameraLookTarget = new THREE.Vector3();
 let groundMesh = null;
 let targetMarker = null;
 
@@ -236,6 +239,7 @@ function setMoveTarget(worldPoint) {
   marker.visible = true;
 
   state.behavior = "approach";
+  state.orbitCameraLocked = false;
   state.waitRemaining = TARGET_WAIT_SECONDS;
   state.orbitProgress = 0;
   const relX = runner.position.x - state.targetPoint.x;
@@ -830,10 +834,6 @@ function updateRunner(delta) {
   }
 
   const camTarget = p.clone().add(new THREE.Vector3(0, 1.5, 0));
-  const desiredCam = camTarget
-    .clone()
-    .add(lookForward.clone().multiplyScalar(-7.4))
-    .add(new THREE.Vector3(0, 3.3, 0));
 
   // Keep the shadow frustum centered around the runner to avoid shadow loss at distance.
   const sunLerp = 1 - Math.exp(-delta * 3.2);
@@ -842,8 +842,23 @@ function updateRunner(delta) {
   sunTarget.position.lerp(p, targetLerp);
   sunTarget.updateMatrixWorld();
 
-  camera.position.lerp(desiredCam, 1 - Math.exp(-delta * 5));
-  cameraLookTarget.lerp(camTarget, 1 - Math.exp(-delta * 8));
+  if (state.behavior === "orbit") {
+    if (!state.orbitCameraLocked) {
+      orbitCameraPosition.copy(camera.position);
+      orbitCameraLookTarget.copy(cameraLookTarget);
+      state.orbitCameraLocked = true;
+    }
+    camera.position.copy(orbitCameraPosition);
+    cameraLookTarget.copy(orbitCameraLookTarget);
+  } else {
+    state.orbitCameraLocked = false;
+    const desiredCam = camTarget
+      .clone()
+      .add(lookForward.clone().multiplyScalar(-7.4))
+      .add(new THREE.Vector3(0, 3.3, 0));
+    camera.position.lerp(desiredCam, 1 - Math.exp(-delta * 5));
+    cameraLookTarget.lerp(camTarget, 1 - Math.exp(-delta * 8));
+  }
   camera.lookAt(cameraLookTarget);
 }
 
