@@ -6,6 +6,7 @@ const canvas = document.querySelector("#scene");
 const speedEl = document.querySelector("#speed");
 const lapEl = document.querySelector("#lap");
 const modeEl = document.querySelector("#mode");
+const musicEl = document.querySelector("#music");
 
 canvas.style.touchAction = "none";
 
@@ -117,6 +118,32 @@ const pointerState = {
   moved: false,
 };
 
+const MUSIC_TRACKS = [
+  {
+    title: "Searchlight Rag",
+    src: "./assets/music/Searchlight_Rag.ogg",
+  },
+  {
+    title: "Maple Leaf Rag",
+    src: "./assets/music/Maple_Leaf_Rag.ogg",
+  },
+  {
+    title: "Gymnopedie No. 1",
+    src: "./assets/music/Gymnopedie_No_1.ogg",
+  },
+];
+
+const bgm = new Audio();
+bgm.preload = "auto";
+bgm.loop = true;
+bgm.volume = 0.42;
+
+const musicState = {
+  index: 0,
+  unlocked: false,
+  enabled: true,
+};
+
 function togglePause() {
   const willResume = state.isPaused;
   state.isPaused = !state.isPaused;
@@ -128,6 +155,45 @@ function togglePause() {
     ).applyAxisAngle(upAxis, state.dragYaw);
     state.runHeadingYaw = Math.atan2(previewForward.z, previewForward.x);
     state.dragYaw = 0;
+  }
+}
+
+function setMusicTrack(index) {
+  musicState.index = (index + MUSIC_TRACKS.length) % MUSIC_TRACKS.length;
+  bgm.src = MUSIC_TRACKS[musicState.index].src;
+  bgm.load();
+}
+
+function tryStartMusicFromUserGesture() {
+  if (!musicState.enabled) {
+    return;
+  }
+  if (!musicState.unlocked) {
+    setMusicTrack(musicState.index);
+  }
+  bgm
+    .play()
+    .then(() => {
+      musicState.unlocked = true;
+    })
+    .catch(() => {
+      // Ignore blocked autoplay errors; next user interaction can retry.
+    });
+}
+
+function toggleMusic() {
+  musicState.enabled = !musicState.enabled;
+  if (!musicState.enabled) {
+    bgm.pause();
+    return;
+  }
+  tryStartMusicFromUserGesture();
+}
+
+function playNextTrack() {
+  setMusicTrack(musicState.index + 1);
+  if (musicState.enabled) {
+    tryStartMusicFromUserGesture();
   }
 }
 
@@ -185,6 +251,7 @@ function setMoveTargetFromPointer(event) {
 }
 
 function onPointerDown(event) {
+  tryStartMusicFromUserGesture();
   if (pointerState.active) {
     return;
   }
@@ -240,13 +307,29 @@ canvas.addEventListener("pointerup", onPointerUp);
 canvas.addEventListener("pointercancel", onPointerUp);
 
 window.addEventListener("keydown", (event) => {
-  if (event.code === "Space") {
+  if (event.code === "KeyM") {
     if (!event.repeat) {
-      togglePause();
+      toggleMusic();
     }
     event.preventDefault();
     return;
   }
+  if (event.code === "KeyN") {
+    if (!event.repeat) {
+      playNextTrack();
+    }
+    event.preventDefault();
+    return;
+  }
+  if (event.code === "Space") {
+    if (!event.repeat) {
+      togglePause();
+    }
+    tryStartMusicFromUserGesture();
+    event.preventDefault();
+    return;
+  }
+  tryStartMusicFromUserGesture();
   keys.add(event.code);
   if (["ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
     event.preventDefault();
@@ -402,6 +485,13 @@ function addFallbackDog() {
 function updateHUD() {
   speedEl.textContent = `速度: ${state.currentSpeed.toFixed(1)}`;
   lapEl.textContent = `圈数: ${state.lap}`;
+  const track = MUSIC_TRACKS[musicState.index];
+  const musicStatus = !musicState.enabled
+    ? "已关闭"
+    : bgm.paused
+      ? "待播放"
+      : "播放中";
+  musicEl.textContent = `音乐: ${musicStatus} - ${track.title}`;
   if (state.isPaused) {
     modeEl.textContent = `状态: 暂停（拖拽角度 ${(THREE.MathUtils.radToDeg(state.dragYaw)).toFixed(0)}°）`;
     return;
@@ -711,6 +801,7 @@ async function bootstrap() {
   addHillyGround();
   addSkyDecor();
   await Promise.all([addMountains(), addScenery(), setupRunner()]);
+  setMusicTrack(0);
   const start = sampleTrack(state.distance, state.lateral);
   const startAhead = sampleTrack(state.distance + 0.7, state.lateral);
   const startForward = startAhead.clone().sub(start).normalize();

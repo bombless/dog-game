@@ -37,6 +37,8 @@ python3 -m http.server 8000
 - `Shift`：冲刺
 - `点击草地`：生成红色小球，狗会跑过去并停留 6 秒
 - `空格`：暂停/继续奔跑
+- `M`：音乐开关
+- `N`：下一首音乐
 - 暂停时 `鼠标拖拽` 或 `手指滑动`：调整狗狗左右朝向
 
 ## 当前实现
@@ -46,13 +48,23 @@ python3 -m http.server 8000
 - 狗自动前进 + 基础转向
 - 点击草地生成红球，狗会靠近并停留后继续奔跑
 - 支持暂停 + 拖拽转向
+- 本地背景音乐播放（键盘可切歌）
 - 自动播放可用动画（优先 Run/Walk）
 - 山体与树石背景摆放
 
 ## 已知说明
 
 - 这个版本是“先跑起来”的起步版，还没有碰撞、得分、终点/失败条件。
-- 使用 Three.js CDN，不需要本地安装 npm 依赖。
+- Three.js 依赖已本地化到 `vendor/three`，不依赖外部 CDN。
+
+## 音乐来源
+
+- `assets/music/Searchlight_Rag.ogg`  
+  来源: https://commons.wikimedia.org/wiki/File:Searchlight_Rag.ogg
+- `assets/music/Maple_Leaf_Rag.ogg`  
+  来源: https://commons.wikimedia.org/wiki/File:Maple_Leaf_Rag.ogg
+- `assets/music/Gymnopedie_No_1.ogg`  
+  来源: https://commons.wikimedia.org/wiki/File:Gymnopedie_No._1..ogg
 
 ## 下一步建议
 
