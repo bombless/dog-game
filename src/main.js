@@ -64,6 +64,9 @@ const state = {
   runHeadingYaw: 0,
   runDistance: 0,
   edgeBlocked: false,
+  orbitAngle: 0,
+  orbitProgress: 0,
+  orbitDirection: 1,
   runnerLoaded: false,
   isPaused: false,
   dragYaw: 0,
@@ -91,7 +94,10 @@ const SUN_OFFSET = new THREE.Vector3(22, 32, 8);
 const MAX_DRAG_YAW = Math.PI * 0.42;
 const DRAG_YAW_SENSITIVITY = 0.008;
 const TARGET_WAIT_SECONDS = 6;
-const TARGET_STOP_DISTANCE = 1.45;
+const TARGET_ORBIT_RADIUS = 1.45;
+const TARGET_ORBIT_TOLERANCE = 0.08;
+const TARGET_ORBIT_ANGULAR_SPEED = 2.4;
+const FULL_CIRCLE_RAD = Math.PI * 2;
 const GROUND = {
   width: 420,
   depth: 170,
@@ -231,6 +237,19 @@ function setMoveTarget(worldPoint) {
 
   state.behavior = "approach";
   state.waitRemaining = TARGET_WAIT_SECONDS;
+  state.orbitProgress = 0;
+  const relX = runner.position.x - state.targetPoint.x;
+  const relZ = runner.position.z - state.targetPoint.z;
+  state.orbitAngle = Math.atan2(relZ, relX);
+  const toTarget = new THREE.Vector3(-relX, 0, -relZ);
+  const toTargetLen = toTarget.length();
+  if (toTargetLen > 0.0001) {
+    toTarget.multiplyScalar(1 / toTargetLen);
+    const crossY = new THREE.Vector3(lastForward.x, 0, lastForward.z).cross(toTarget).y;
+    state.orbitDirection = crossY >= 0 ? 1 : -1;
+  } else {
+    state.orbitDirection = 1;
+  }
   state.isPaused = false;
   state.dragYaw = 0;
 }
@@ -501,6 +520,11 @@ function updateHUD() {
     modeEl.textContent = "状态: 正在靠近红球";
     return;
   }
+  if (state.behavior === "orbit") {
+    const progress = Math.min(100, (state.orbitProgress / FULL_CIRCLE_RAD) * 100);
+    modeEl.textContent = `状态: 绕圈中 ${progress.toFixed(0)}%`;
+    return;
+  }
   if (state.behavior === "wait") {
     modeEl.textContent = `状态: 已到达，等待 ${state.waitRemaining.toFixed(1)}s`;
     return;
@@ -709,23 +733,62 @@ function updateRunner(delta) {
     if (state.behavior === "approach") {
       if (!state.isPaused) {
         const step = state.approachSpeed * delta;
-        if (distanceToTarget <= TARGET_STOP_DISTANCE || step >= distanceToTarget) {
-          const clampedStep = Math.max(0, distanceToTarget - TARGET_STOP_DISTANCE);
-          if (clampedStep > 0.0001) {
-            p.x += targetDirection.x * clampedStep;
-            p.z += targetDirection.z * clampedStep;
+        const distanceToOrbit = Math.max(0, distanceToTarget - TARGET_ORBIT_RADIUS);
+        if (distanceToOrbit <= TARGET_ORBIT_TOLERANCE || step >= distanceToOrbit) {
+          const relX = p.x - state.targetPoint.x;
+          const relZ = p.z - state.targetPoint.z;
+          const relLen = Math.hypot(relX, relZ);
+          if (relLen > 0.0001) {
+            p.x = state.targetPoint.x + (relX / relLen) * TARGET_ORBIT_RADIUS;
+            p.z = state.targetPoint.z + (relZ / relLen) * TARGET_ORBIT_RADIUS;
+            state.orbitAngle = Math.atan2(relZ / relLen, relX / relLen);
+          } else {
+            const fallback = lastForward
+              .clone()
+              .applyAxisAngle(upAxis, -state.orbitDirection * Math.PI * 0.5);
+            p.x = state.targetPoint.x + fallback.x * TARGET_ORBIT_RADIUS;
+            p.z = state.targetPoint.z + fallback.z * TARGET_ORBIT_RADIUS;
+            state.orbitAngle = Math.atan2(fallback.z, fallback.x);
           }
           p.y = worldGroundHeight(p.x, p.z);
-          state.behavior = "wait";
-          state.waitRemaining = TARGET_WAIT_SECONDS;
+          state.orbitProgress = 0;
+          state.behavior = "orbit";
         } else {
-          p.x += targetDirection.x * step;
-          p.z += targetDirection.z * step;
+          const move = Math.min(step, distanceToOrbit);
+          p.x += targetDirection.x * move;
+          p.z += targetDirection.z * move;
           p.y = worldGroundHeight(p.x, p.z);
         }
       }
       ahead = p.clone().add(targetDirection.multiplyScalar(0.8));
       state.currentSpeed = state.isPaused ? 0 : state.approachSpeed;
+    }
+
+    if (state.behavior === "orbit") {
+      if (!state.isPaused) {
+        const remaining = Math.max(0, FULL_CIRCLE_RAD - state.orbitProgress);
+        const deltaAngle = Math.min(TARGET_ORBIT_ANGULAR_SPEED * delta, remaining);
+        state.orbitProgress += deltaAngle;
+        state.orbitAngle += deltaAngle * state.orbitDirection;
+        if (state.orbitProgress >= FULL_CIRCLE_RAD - 1e-6) {
+          state.behavior = "wait";
+          state.waitRemaining = TARGET_WAIT_SECONDS;
+        }
+      }
+
+      const cosA = Math.cos(state.orbitAngle);
+      const sinA = Math.sin(state.orbitAngle);
+      p.x = state.targetPoint.x + cosA * TARGET_ORBIT_RADIUS;
+      p.z = state.targetPoint.z + sinA * TARGET_ORBIT_RADIUS;
+      p.y = worldGroundHeight(p.x, p.z);
+
+      const tangent = new THREE.Vector3(
+        -sinA * state.orbitDirection,
+        0,
+        cosA * state.orbitDirection
+      );
+      ahead = p.clone().add(tangent.multiplyScalar(0.85));
+      state.currentSpeed = state.isPaused ? 0 : TARGET_ORBIT_RADIUS * TARGET_ORBIT_ANGULAR_SPEED;
     }
 
     if (state.behavior === "wait") {
