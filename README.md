@@ -19,6 +19,31 @@ python3 -m http.server 8000
 
 `http://127.0.0.1:8000`
 
+## Vite 热更新开发
+
+首次安装依赖：
+
+```bash
+npm install
+```
+
+启动 Vite 开发服务器（带 HMR）：
+
+```bash
+npm run dev
+```
+
+打开：
+
+`http://127.0.0.1:5173`
+
+可选命令：
+
+```bash
+npm run build
+npm run preview
+```
+
 ## 部署到 GitHub Pages
 
 1. 新建一个 GitHub 仓库并把当前代码推上去（`master` 或 `main` 分支都可以）。
@@ -52,7 +77,7 @@ python3 -m http.server 8000
 - 本地背景音乐播放（键盘可切歌）
 - 自动播放可用动画（优先 Run/Walk）
 - 山体与树石背景摆放
-- 草地两侧会出现吃草牛群（使用 `Cow.fbx`）
+- 草地两侧会出现多种动物（鹿、羊驼、马、牛、狐狸、狼等），每种随机 1-2 只
 
 ## 已知说明
 

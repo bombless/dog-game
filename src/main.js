@@ -103,7 +103,92 @@ const TARGET_ORBIT_ANGULAR_SPEED = 2.4;
 const FULL_CIRCLE_RAD = Math.PI * 2;
 const TARGET_ORBIT_TURNS = 2;
 const TARGET_ORBIT_TOTAL_RAD = FULL_CIRCLE_RAD * TARGET_ORBIT_TURNS;
-const COW_COUNT = 8;
+const AMBIENT_ANIMAL_SPECS = [
+  {
+    name: "Cow",
+    paths: ["./assets/pack_nature/FBX/Cow.fbx", "./Cow.fbx"],
+    desiredHeight: 1.8,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "Bull",
+    paths: ["./assets/pack_nature/FBX/Bull.fbx"],
+    desiredHeight: 1.95,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "Deer",
+    paths: ["./assets/pack_nature/FBX/Deer.fbx"],
+    desiredHeight: 1.75,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "Stag",
+    paths: ["./assets/pack_nature/FBX/Stag.fbx"],
+    desiredHeight: 1.95,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "Alpaca",
+    paths: ["./assets/pack_nature/FBX/Alpaca.fbx"],
+    desiredHeight: 1.5,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "Donkey",
+    paths: ["./assets/pack_nature/FBX/Donkey.fbx"],
+    desiredHeight: 1.7,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "Horse",
+    paths: ["./assets/pack_nature/FBX/Horse.fbx"],
+    desiredHeight: 2.05,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "Horse_White",
+    paths: ["./assets/pack_nature/FBX/Horse_White.fbx"],
+    desiredHeight: 2.05,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "Fox",
+    paths: ["./assets/pack_nature/FBX/Fox.fbx"],
+    desiredHeight: 1.2,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "Wolf",
+    paths: ["./assets/pack_nature/FBX/Wolf.fbx"],
+    desiredHeight: 1.35,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "Husky",
+    paths: ["./assets/pack_nature/FBX/Husky.fbx"],
+    desiredHeight: 1.3,
+    minCount: 1,
+    maxCount: 2,
+  },
+  {
+    name: "ShibaInu",
+    paths: ["./assets/pack_nature/FBX/ShibaInu.fbx"],
+    desiredHeight: 1.25,
+    minCount: 1,
+    maxCount: 2,
+  },
+];
 const GROUND = {
   width: 420,
   depth: 170,
@@ -842,7 +927,11 @@ async function addScenery() {
   }
 }
 
-function pickCowGrazeClip(clips) {
+function randomIntInclusive(min, max) {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+function pickAmbientAnimalClip(clips) {
   if (!clips || clips.length === 0) {
     return null;
   }
@@ -858,47 +947,61 @@ function pickCowGrazeClip(clips) {
   if (idle) {
     return idle;
   }
+  const walk = clips.find((clip) => /(^|[|_:/\s])walk($|[|_:/\s])/i.test(clip.name));
+  if (walk) {
+    return walk;
+  }
   return clips[0];
 }
 
-async function addCows() {
-  const cowPaths = ["./assets/pack_nature/FBX/Cow.fbx", "./Cow.fbx"];
-  const cowsRaw = await Promise.all(
-    Array.from({ length: COW_COUNT }, () => loadFBX(cowPaths))
-  );
-  const cows = cowsRaw.filter(Boolean);
-  if (cows.length === 0) {
+async function addAmbientAnimals() {
+  const spawnJobs = [];
+  for (const spec of AMBIENT_ANIMAL_SPECS) {
+    const count = randomIntInclusive(spec.minCount, spec.maxCount);
+    for (let i = 0; i < count; i += 1) {
+      spawnJobs.push({ spec, promise: loadFBX(spec.paths) });
+    }
+  }
+
+  const loadedAnimals = await Promise.all(spawnJobs.map((job) => job.promise));
+  if (loadedAnimals.every((animal) => !animal)) {
     return;
   }
 
-  for (const cow of cows) {
-    configureRenderable(cow);
-    scaleObjectToHeight(cow, 1.8);
-    const cowBox = new THREE.Box3().setFromObject(cow);
-    const footOffsetY = -cowBox.min.y;
-    const cowClips = cow.animations ?? [];
-    const grazeClip = pickCowGrazeClip(cowClips);
+  for (let i = 0; i < loadedAnimals.length; i += 1) {
+    const animal = loadedAnimals[i];
+    const spec = spawnJobs[i].spec;
+    if (!animal) {
+      continue;
+    }
+
+    configureRenderable(animal);
+    scaleObjectToHeight(animal, spec.desiredHeight);
+    const animalBox = new THREE.Box3().setFromObject(animal);
+    const footOffsetY = -animalBox.min.y;
+    const animalClips = animal.animations ?? [];
+    const ambientClip = pickAmbientAnimalClip(animalClips);
 
     const side = Math.random() > 0.5 ? 1 : -1;
-    const x = GROUND_MIN_X + 20 + Math.random() * (GROUND_MAX_X - GROUND_MIN_X - 40);
-    const z = side * (16 + Math.random() * 34);
-    cow.position.set(x, worldGroundHeight(x, z) + footOffsetY, z);
-    cow.rotation.y = Math.random() * Math.PI * 2;
+    const x = GROUND_MIN_X + 18 + Math.random() * (GROUND_MAX_X - GROUND_MIN_X - 36);
+    const z = side * (17 + Math.random() * 35);
+    animal.position.set(x, worldGroundHeight(x, z) + footOffsetY, z);
+    animal.rotation.y = Math.random() * Math.PI * 2;
 
-    const scaleJitter = 0.9 + Math.random() * 0.25;
-    cow.scale.multiplyScalar(scaleJitter);
-    scene.add(cow);
+    const scaleJitter = 0.88 + Math.random() * 0.25;
+    animal.scale.multiplyScalar(scaleJitter);
+    scene.add(animal);
 
-    if (grazeClip) {
-      const mixer = new THREE.AnimationMixer(cow);
-      const action = mixer.clipAction(grazeClip);
+    if (ambientClip) {
+      const mixer = new THREE.AnimationMixer(animal);
+      const action = mixer.clipAction(ambientClip);
       action.enabled = true;
       action.clampWhenFinished = false;
       action.setLoop(THREE.LoopRepeat, Infinity);
       action.setEffectiveWeight(1);
       action.setEffectiveTimeScale(0.8 + Math.random() * 0.3);
       action.play();
-      mixer.setTime(Math.random() * Math.max(0.01, grazeClip.duration));
+      mixer.setTime(Math.random() * Math.max(0.01, ambientClip.duration));
       ambientMixers.push(mixer);
     }
   }
@@ -1141,7 +1244,7 @@ function animate() {
 async function bootstrap() {
   addHillyGround();
   addSkyDecor();
-  await Promise.all([addMountains(), addScenery(), addCows(), setupRunner()]);
+  await Promise.all([addMountains(), addScenery(), addAmbientAnimals(), setupRunner()]);
   setMusicTrack(0);
   const start = sampleTrack(state.distance, state.lateral);
   const startAhead = sampleTrack(state.distance + 0.7, state.lateral);
